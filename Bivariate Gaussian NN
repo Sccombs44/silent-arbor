@@ -1,0 +1,78 @@
+# ============================================
+# STABLE GAUSSIAN MIXTURE DISTRIBUTION VISUALIZATION
+# ============================================
+
+# Force safest plotting backend
+import matplotlib
+matplotlib.use("Agg")
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+# -----------------------------
+# Parameters (you can change these)
+# -----------------------------
+np.random.seed(0)
+
+mean1 = np.array([0.0, 0.0], dtype=np.float32)
+mean2 = np.array([2.0, 1.5], dtype=np.float32)
+
+cov1 = np.array([[1.0, 0.5],
+                 [0.5, 1.2]], dtype=np.float32)
+
+cov2 = np.array([[0.6, -0.3],
+                 [-0.3, 0.6]], dtype=np.float32)
+
+w1 = 0.5
+N = 8000        # MORE SAMPLES, STILL SAFE
+bins = 120      # density resolution
+
+# -----------------------------
+# Stable Gaussian mixture sampling
+# -----------------------------
+L1 = np.linalg.cholesky(cov1)
+L2 = np.linalg.cholesky(cov2)
+
+X = np.empty((N, 2), dtype=np.float32)
+
+for i in range(N):
+    z = np.random.randn(2).astype(np.float32)
+    if np.random.rand() < w1:
+        X[i] = mean1 + L1 @ z
+    else:
+        X[i] = mean2 + L2 @ z
+
+# -----------------------------
+# Density estimation via 2D histogram
+# -----------------------------
+H, xedges, yedges = np.histogram2d(
+    X[:, 0], X[:, 1],
+    bins=bins,
+    density=True
+)
+
+# Convert bin edges to centers
+xcenters = 0.5 * (xedges[:-1] + xedges[1:])
+ycenters = 0.5 * (yedges[:-1] + yedges[1:])
+Xc, Yc = np.meshgrid(xcenters, ycenters)
+
+# -----------------------------
+# Visualization (file-based only)
+# -----------------------------
+plt.figure(figsize=(6, 5))
+plt.imshow(
+    H.T,
+    origin="lower",
+    extent=[xedges[0], xedges[-1], yedges[0], yedges[-1]],
+    aspect="equal"
+)
+plt.colorbar(label="Estimated Density")
+plt.xlabel("x")
+plt.ylabel("y")
+plt.title("Two Overlapping Gaussian Distributions\n(2D Density Estimate)")
+
+plt.savefig("gaussian_mixture_density.png", dpi=160)
+plt.close()
+
+print("Saved density visualization to gaussian_mixture_density.png")
+print(f"Samples used: {N}")
