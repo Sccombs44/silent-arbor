@@ -1,0 +1,147 @@
+# ============================================================
+# TWO OVERLAPPING GAUSSIANS → NEURAL NETWORK → GRID VISUALIZATION
+# ============================================================
+
+# ---- SAFEST plotting backend (no GUI, no kernel crashes)
+import matplotlib
+matplotlib.use("Agg")
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+# ------------------------------------------------------------
+# USER PARAMETERS (adjust these)
+# ------------------------------------------------------------
+np.random.seed(0)
+
+# Gaussian means
+mean1 = np.array([-1.0, 0.0], dtype=np.float32)
+mean2 = np.array([1.5, 1.0], dtype=np.float32)
+
+# Gaussian sigmas (covariances)
+sigma1 = np.array([[1.0, 0.4],
+                   [0.4, 1.2]], dtype=np.float32)
+
+sigma2 = np.array([[0.6, -0.3],
+                   [-0.3, 0.6]], dtype=np.float32)
+
+w1 = 0.5          # mixture weight
+N = 10000         # number of samples (safe but informative)
+hidden_units = 6  # between 5–7 as requested
+epochs = 40
+lr = 1e-3
+
+# ------------------------------------------------------------
+# STABLE GAUSSIAN MIXTURE SAMPLING (NO multivariate_normal)
+# ------------------------------------------------------------
+L1 = np.linalg.cholesky(sigma1)
+L2 = np.linalg.cholesky(sigma2)
+
+X = np.empty((N, 2), dtype=np.float32)
+
+for i in range(N):
+    z = np.random.randn(2).astype(np.float32)
+    if np.random.rand() < w1:
+        X[i] = mean1 + L1 @ z
+    else:
+        X[i] = mean2 + L2 @ z
+
+# ------------------------------------------------------------
+# TRUE MIXTURE PDF (training target)
+# ------------------------------------------------------------
+def gaussian_pdf(x, mean, cov):
+    inv = np.linalg.inv(cov)
+    det = np.linalg.det(cov)
+    norm = 1.0 / (2 * np.pi * np.sqrt(det))
+    d = x - mean
+    return norm * np.exp(-0.5 * np.sum(d @ inv * d, axis=1))
+
+y = (
+    w1 * gaussian_pdf(X, mean1, sigma1) +
+    (1 - w1) * gaussian_pdf(X, mean2, sigma2)
+).astype(np.float32).reshape(-1, 1)
+
+# ------------------------------------------------------------
+# SIMPLE NUMPY NEURAL NETWORK (2 → 6 → 1)
+# ------------------------------------------------------------
+W1 = np.random.randn(2, hidden_units).astype(np.float32) * 0.1
+b1 = np.zeros(hidden_units, dtype=np.float32)
+W2 = np.random.randn(hidden_units, 1).astype(np.float32) * 0.1
+b2 = np.zeros(1, dtype=np.float32)
+
+def forward(x):
+    z1 = x @ W1 + b1
+    a1 = np.tanh(z1)
+    z2 = a1 @ W2 + b2
+    return np.maximum(z2, 0), a1  # ReLU output for density
+
+# ------------------------------------------------------------
+# TRAINING LOOP (BATCHED FOR STABILITY)
+# ------------------------------------------------------------
+batch_size = 256
+
+for epoch in range(epochs):
+    perm = np.random.permutation(N)
+    loss_sum = 0.0
+
+    for i in range(0, N, batch_size):
+        idx = perm[i:i+batch_size]
+        xb = X[idx]
+        yb = y[idx]
+
+        yhat, a1 = forward(xb)
+        loss = np.mean((yhat - yb) ** 2)
+        loss_sum += loss
+
+        # Backprop
+        dL = 2 * (yhat - yb) / len(xb)
+        dZ2 = dL * (yhat > 0)
+
+        dW2 = a1.T @ dZ2
+        db2 = dZ2.sum(axis=0)
+
+        da1 = dZ2 @ W2.T
+        dZ1 = da1 * (1 - a1**2)
+
+        dW1 = xb.T @ dZ1
+        db1 = dZ1.sum(axis=0)
+
+        # Update
+        W1 -= lr * dW1
+        b1 -= lr * db1
+        W2 -= lr * dW2
+        b2 -= lr * db2
+
+    print(f"Epoch {epoch+1:02d} | MSE: {loss_sum:.6e}")
+
+# ------------------------------------------------------------
+# GRID EVALUATION OF NETWORK OUTPUT
+# ------------------------------------------------------------
+grid_n = 120
+x = np.linspace(-5, 5, grid_n, dtype=np.float32)
+ygrid = np.linspace(-5, 5, grid_n, dtype=np.float32)
+Xg, Yg = np.meshgrid(x, ygrid)
+
+grid = np.stack([Xg.ravel(), Yg.ravel()], axis=1)
+Z, _ = forward(grid)
+Z = Z.reshape(Xg.shape)
+
+# ------------------------------------------------------------
+# VISUALIZATION (SAVED TO FILE)
+# ------------------------------------------------------------
+plt.figure(figsize=(6, 5))
+plt.imshow(
+    Z,
+    origin="lower",
+    extent=[x.min(), x.max(), ygrid.min(), ygrid.max()],
+    aspect="equal"
+)
+plt.colorbar(label="Neural Network Density Output")
+plt.title("Neural Network Approximation of Overlapping Gaussians")
+plt.xlabel("x")
+plt.ylabel("y")
+
+plt.savefig("nn_gaussian_mixture_output.png", dpi=160)
+plt.close()
+
+print("Saved network output visualization to nn_gaussian_mixture_output.png")
