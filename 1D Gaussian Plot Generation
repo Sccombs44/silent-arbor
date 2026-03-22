@@ -1,0 +1,78 @@
+# ============================================================
+# 1D LINEAR SLICE OF TWO GAUSSIANS + MIXTURE
+# ============================================================
+
+import matplotlib
+matplotlib.use("Agg")
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+# ------------------------------------------------------------
+# PARAMETERS (adjust freely)
+# ------------------------------------------------------------
+np.random.seed(0)
+
+mean1 = np.array([-1.0, 0.0], dtype=np.float32)
+mean2 = np.array([1.5, 1.0], dtype=np.float32)
+
+sigma1 = np.array([[1.0, 0.4],
+                   [0.4, 1.2]], dtype=np.float32)
+
+sigma2 = np.array([[0.6, -0.3],
+                   [-0.3, 0.6]], dtype=np.float32)
+
+w1 = 0.5
+
+# ------------------------------------------------------------
+# GAUSSIAN PDF (pointwise)
+# ------------------------------------------------------------
+def gaussian_pdf_point(x, mean, cov):
+    inv = np.linalg.inv(cov)
+    det = np.linalg.det(cov)
+    norm = 1.0 / (2 * np.pi * np.sqrt(det))
+    d = x - mean
+    return norm * np.exp(-0.5 * d @ inv @ d)
+
+# ------------------------------------------------------------
+# 1D SLICE: fix y = 0, vary x
+# ------------------------------------------------------------
+x_vals = np.linspace(-5, 5, 400, dtype=np.float32)
+y_fixed = 0.0
+
+g1 = np.zeros_like(x_vals)
+g2 = np.zeros_like(x_vals)
+gmix = np.zeros_like(x_vals)
+
+for i, x in enumerate(x_vals):
+    point = np.array([x, y_fixed], dtype=np.float32)
+    
+    z1 = gaussian_pdf_point(point, mean1, sigma1)
+    z2 = gaussian_pdf_point(point, mean2, sigma2)
+    
+    g1[i] = z1
+    g2[i] = z2
+    gmix[i] = w1 * z1 + (1 - w1) * z2
+
+# ------------------------------------------------------------
+# PLOT (LINEAR)
+# ------------------------------------------------------------
+plt.figure(figsize=(7, 4))
+
+plt.plot(x_vals, g1, label="Gaussian 1")
+plt.plot(x_vals, g2, label="Gaussian 2")
+plt.plot(x_vals, gmix, linestyle="--", label="Mixture")
+
+plt.xlabel("x (slice at y = 0)")
+plt.ylabel("Density")
+plt.title("Linear Slice of Two Overlapping Gaussians")
+plt.grid()
+plt.legend()
+
+# ------------------------------------------------------------
+# SAVE ONLY (no display)
+# ------------------------------------------------------------
+plt.savefig("gaussians_linear_slice.png", dpi=160)
+plt.close()
+
+print("Saved linear plot to gaussians_linear_slice.png")
