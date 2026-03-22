@@ -1,0 +1,151 @@
+# ============================================================
+# LINEAR SLICE: TRUE GAUSSIANS vs NEURAL NETWORK
+# ============================================================
+
+import matplotlib
+matplotlib.use("Agg")
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+# ------------------------------------------------------------
+# PARAMETERS (adjust freely)
+# ------------------------------------------------------------
+np.random.seed(0)
+
+mean1 = np.array([-1.0, 0.0], dtype=np.float32)
+mean2 = np.array([1.5, 1.0], dtype=np.float32)
+
+sigma1 = np.array([[1.0, 0.4],
+                   [0.4, 1.2]], dtype=np.float32)
+
+sigma2 = np.array([[0.6, -0.3],
+                   [-0.3, 0.6]], dtype=np.float32)
+
+w1 = 0.5
+N = 6000
+hidden_units = 6
+epochs = 40
+lr = 1e-3
+
+# ------------------------------------------------------------
+# STABLE SAMPLING
+# ------------------------------------------------------------
+L1 = np.linalg.cholesky(sigma1)
+L2 = np.linalg.cholesky(sigma2)
+
+X = np.empty((N, 2), dtype=np.float32)
+
+for i in range(N):
+    z = np.random.randn(2).astype(np.float32)
+    if np.random.rand() < w1:
+        X[i] = mean1 + L1 @ z
+    else:
+        X[i] = mean2 + L2 @ z
+
+# ------------------------------------------------------------
+# TRUE PDF
+# ------------------------------------------------------------
+def gaussian_pdf(x, mean, cov):
+    inv = np.linalg.inv(cov)
+    det = np.linalg.det(cov)
+    norm = 1.0 / (2 * np.pi * np.sqrt(det))
+    d = x - mean
+    return norm * np.exp(-0.5 * np.sum(d @ inv * d, axis=1))
+
+y_true = (
+    w1 * gaussian_pdf(X, mean1, sigma1) +
+    (1 - w1) * gaussian_pdf(X, mean2, sigma2)
+).astype(np.float32).reshape(-1, 1)
+
+# ------------------------------------------------------------
+# NEURAL NETWORK (2 → 6 → 1)
+# ------------------------------------------------------------
+W1 = np.random.randn(2, hidden_units).astype(np.float32) * 0.1
+b1 = np.zeros(hidden_units, dtype=np.float32)
+W2 = np.random.randn(hidden_units, 1).astype(np.float32) * 0.1
+b2 = np.zeros(1, dtype=np.float32)
+
+def forward(x):
+    z1 = x @ W1 + b1
+    a1 = np.tanh(z1)
+    z2 = a1 @ W2 + b2
+    return np.maximum(z2, 0), a1
+
+# ------------------------------------------------------------
+# TRAINING
+# ------------------------------------------------------------
+batch_size = 256
+
+for epoch in range(epochs):
+    perm = np.random.permutation(N)
+    for i in range(0, N, batch_size):
+        idx = perm[i:i+batch_size]
+        xb = X[idx]
+        yb = y_true[idx]
+
+        yhat, a1 = forward(xb)
+
+        dL = 2 * (yhat - yb) / len(xb)
+        dZ2 = dL * (yhat > 0)
+
+        dW2 = a1.T @ dZ2
+        db2 = dZ2.sum(axis=0)
+
+        da1 = dZ2 @ W2.T
+        dZ1 = da1 * (1 - a1**2)
+
+        dW1 = xb.T @ dZ1
+        db1 = dZ1.sum(axis=0)
+
+        W1 -= lr * dW1
+        b1 -= lr * db1
+        W2 -= lr * dW2
+        b2 -= lr * db2
+
+# ------------------------------------------------------------
+# LINEAR SLICE (y = 0)
+# ------------------------------------------------------------
+x_vals = np.linspace(-5, 5, 400, dtype=np.float32)
+y_fixed = 0.0
+
+g1 = np.zeros_like(x_vals)
+g2 = np.zeros_like(x_vals)
+gmix = np.zeros_like(x_vals)
+gnn = np.zeros_like(x_vals)
+
+for i, x in enumerate(x_vals):
+    point = np.array([[x, y_fixed]], dtype=np.float32)
+
+    z1 = gaussian_pdf(point, mean1, sigma1)[0]
+    z2 = gaussian_pdf(point, mean2, sigma2)[0]
+
+    g1[i] = z1
+    g2[i] = z2
+    gmix[i] = w1 * z1 + (1 - w1) * z2
+
+    gnn[i] = forward(point)[0][0, 0]
+
+# ------------------------------------------------------------
+# PLOT
+# ------------------------------------------------------------
+plt.figure(figsize=(7, 4))
+
+plt.plot(x_vals, g1, label="Gaussian 1")
+plt.plot(x_vals, g2, label="Gaussian 2")
+plt.plot(x_vals, gmix, linestyle="--", label="True Mixture")
+plt.plot(x_vals, gnn, linestyle=":", label="Neural Network")
+
+plt.xlabel("x (slice at y = 0)")
+plt.ylabel("Density")
+plt.title("Neural Network vs True Gaussian Mixture")
+
+plt.legend()
+
+# ------------------------------------------------------------
+# SAVE
+# ------------------------------------------------------------
+plt.savefig("nn_vs_true_linear.png", dpi=160)
+plt.close()
+
+print("Saved comparison plot to nn_vs_true_linear.png")
