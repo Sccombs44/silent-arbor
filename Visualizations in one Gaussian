@@ -1,0 +1,190 @@
+# ============================================================
+# MASTER: GAUSSIANS + NN + ALL VISUALIZATIONS (SAFE)
+# ============================================================
+
+import matplotlib
+matplotlib.use("Agg")
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+# ------------------------------------------------------------
+# PARAMETERS
+# ------------------------------------------------------------
+np.random.seed(0)
+
+mean1 = np.array([-1.0, 0.0], dtype=np.float32)
+mean2 = np.array([1.5, 1.0], dtype=np.float32)
+
+sigma1 = np.array([[1.0, 0.4],
+                   [0.4, 1.2]], dtype=np.float32)
+
+sigma2 = np.array([[0.6, -0.3],
+                   [-0.3, 0.6]], dtype=np.float32)
+
+w1 = 0.5
+N = 8000
+hidden_units = 6
+epochs = 30
+lr = 1e-3
+
+# ------------------------------------------------------------
+# SAMPLING (stable)
+# ------------------------------------------------------------
+L1 = np.linalg.cholesky(sigma1)
+L2 = np.linalg.cholesky(sigma2)
+
+X = np.empty((N, 2), dtype=np.float32)
+
+for i in range(N):
+    z = np.random.randn(2).astype(np.float32)
+    if np.random.rand() < w1:
+        X[i] = mean1 + L1 @ z
+    else:
+        X[i] = mean2 + L2 @ z
+
+# ------------------------------------------------------------
+# TRUE PDF
+# ------------------------------------------------------------
+def gaussian_pdf(x, mean, cov):
+    inv = np.linalg.inv(cov)
+    det = np.linalg.det(cov)
+    norm = 1.0 / (2 * np.pi * np.sqrt(det))
+    d = x - mean
+    return norm * np.exp(-0.5 * np.sum(d @ inv * d, axis=1))
+
+y_true = (
+    w1 * gaussian_pdf(X, mean1, sigma1) +
+    (1 - w1) * gaussian_pdf(X, mean2, sigma2)
+).astype(np.float32).reshape(-1, 1)
+
+# ------------------------------------------------------------
+# NEURAL NETWORK
+# ------------------------------------------------------------
+W1 = np.random.randn(2, hidden_units).astype(np.float32) * 0.1
+b1 = np.zeros(hidden_units, dtype=np.float32)
+W2 = np.random.randn(hidden_units, 1).astype(np.float32) * 0.1
+b2 = np.zeros(1, dtype=np.float32)
+
+def forward(x):
+    z1 = x @ W1 + b1
+    a1 = np.tanh(z1)
+    z2 = a1 @ W2 + b2
+    return np.maximum(z2, 0)
+
+# ------------------------------------------------------------
+# TRAIN
+# ------------------------------------------------------------
+batch = 256
+for _ in range(epochs):
+    perm = np.random.permutation(N)
+    for i in range(0, N, batch):
+        idx = perm[i:i+batch]
+        xb = X[idx]
+        yb = y_true[idx]
+
+        yhat = forward(xb)
+
+        d = 2 * (yhat - yb) / len(xb)
+        dZ2 = d * (yhat > 0)
+
+        a1 = np.tanh(xb @ W1 + b1)
+
+        dW2 = a1.T @ dZ2
+        db2 = dZ2.sum(axis=0)
+
+        da1 = dZ2 @ W2.T
+        dZ1 = da1 * (1 - a1**2)
+
+        dW1 = xb.T @ dZ1
+        db1 = dZ1.sum(axis=0)
+
+        W1 -= lr * dW1
+        b1 -= lr * db1
+        W2 -= lr * dW2
+        b2 -= lr * db2
+
+# ------------------------------------------------------------
+# GRID FOR VISUALS
+# ------------------------------------------------------------
+grid_n = 80
+x = np.linspace(-5, 5, grid_n, dtype=np.float32)
+y = np.linspace(-5, 5, grid_n, dtype=np.float32)
+Xg, Yg = np.meshgrid(x, y)
+
+Z_true = np.zeros_like(Xg)
+Z_nn = np.zeros_like(Xg)
+
+for i in range(grid_n):
+    for j in range(grid_n):
+        p = np.array([[Xg[i,j], Yg[i,j]]], dtype=np.float32)
+
+        z1 = gaussian_pdf(p, mean1, sigma1)[0]
+        z2 = gaussian_pdf(p, mean2, sigma2)[0]
+
+        Z_true[i,j] = w1*z1 + (1-w1)*z2
+        Z_nn[i,j] = forward(p)[0,0]
+
+# ------------------------------------------------------------
+# 1️⃣ DENSITY MAP (TRUE vs NN)
+# ------------------------------------------------------------
+plt.figure()
+plt.imshow(Z_nn, origin="lower", extent=[-5,5,-5,5])
+plt.title("Neural Network Density")
+plt.savefig("1_nn_density.png")
+plt.close()
+
+# ------------------------------------------------------------
+# 2️⃣ TRUE GAUSSIAN CONTOURS + NN
+# ------------------------------------------------------------
+plt.figure()
+plt.contour(Xg, Yg, Z_true)
+plt.contour(Xg, Yg, Z_nn, linestyles="dashed")
+plt.title("True (solid) vs NN (dashed)")
+plt.savefig("2_contours.png")
+plt.close()
+
+# ------------------------------------------------------------
+# 3️⃣ RGB OVERLAP MAP + NN INTENSITY
+# ------------------------------------------------------------
+Z1 = Z_true * (Z_true > 0)  # reuse
+
+RGB = np.zeros((grid_n, grid_n, 3))
+RGB[..., 0] = Z_true / Z_true.max()
+RGB[..., 2] = Z_nn / (Z_nn.max() + 1e-8)
+
+plt.figure()
+plt.imshow(RGB, origin="lower", extent=[-5,5,-5,5])
+plt.title("Red=True | Blue=NN")
+plt.savefig("3_rgb_compare.png")
+plt.close()
+
+# ------------------------------------------------------------
+# 4️⃣ LINEAR SLICE
+# ------------------------------------------------------------
+xs = np.linspace(-5,5,400,dtype=np.float32)
+g_true = []
+g_nn = []
+
+for xv in xs:
+    p = np.array([[xv,0]],dtype=np.float32)
+
+    z1 = gaussian_pdf(p, mean1, sigma1)[0]
+    z2 = gaussian_pdf(p, mean2, sigma2)[0]
+
+    g_true.append(w1*z1 + (1-w1)*z2)
+    g_nn.append(forward(p)[0,0])
+
+plt.figure()
+plt.plot(xs, g_true, label="True")
+plt.plot(xs, g_nn, linestyle="--", label="NN")
+plt.legend()
+plt.title("Linear Slice")
+plt.savefig("4_linear.png")
+plt.close()
+
+print("Saved all visualizations:")
+print("1_nn_density.png")
+print("2_contours.png")
+print("3_rgb_compare.png")
+print("4_linear.png")
