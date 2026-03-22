@@ -1,0 +1,81 @@
+# ============================================================
+# TRUE GAUSSIAN DISTRIBUTIONS VISUALIZATION (SAFE)
+# ============================================================
+
+# Safe backend (no GUI / no crashes)
+import matplotlib
+matplotlib.use("Agg")
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+# ------------------------------------------------------------
+# PARAMETERS (same structure as before — adjust freely)
+# ------------------------------------------------------------
+np.random.seed(0)
+
+mean1 = np.array([-1.0, 0.0], dtype=np.float32)
+mean2 = np.array([1.5, 1.0], dtype=np.float32)
+
+sigma1 = np.array([[1.0, 0.4],
+                   [0.4, 1.2]], dtype=np.float32)
+
+sigma2 = np.array([[0.6, -0.3],
+                   [-0.3, 0.6]], dtype=np.float32)
+
+w1 = 0.5
+
+# ------------------------------------------------------------
+# GAUSSIAN PDF FUNCTION (POINTWISE, STABLE)
+# ------------------------------------------------------------
+def gaussian_pdf_point(x, mean, cov):
+    inv = np.linalg.inv(cov)
+    det = np.linalg.det(cov)
+    norm = 1.0 / (2 * np.pi * np.sqrt(det))
+    d = x - mean
+    return norm * np.exp(-0.5 * d @ inv @ d)
+
+# ------------------------------------------------------------
+# GRID (small and safe)
+# ------------------------------------------------------------
+grid_n = 100
+x = np.linspace(-5, 5, grid_n, dtype=np.float32)
+y = np.linspace(-5, 5, grid_n, dtype=np.float32)
+Xg, Yg = np.meshgrid(x, y)
+
+Z1 = np.zeros_like(Xg)
+Z2 = np.zeros_like(Xg)
+Zmix = np.zeros_like(Xg)
+
+# Compute densities (loop = safe, avoids memory spikes)
+for i in range(grid_n):
+    for j in range(grid_n):
+        point = np.array([Xg[i, j], Yg[i, j]], dtype=np.float32)
+        z1 = gaussian_pdf_point(point, mean1, sigma1)
+        z2 = gaussian_pdf_point(point, mean2, sigma2)
+
+        Z1[i, j] = z1
+        Z2[i, j] = z2
+        Zmix[i, j] = w1 * z1 + (1 - w1) * z2
+
+# ------------------------------------------------------------
+# VISUALIZATION (SAVED ONLY)
+# ------------------------------------------------------------
+plt.figure(figsize=(7, 6))
+
+# Contours for each Gaussian
+plt.contour(Xg, Yg, Z1, levels=10, linestyles="dashed")
+plt.contour(Xg, Yg, Z2, levels=10, linestyles="dotted")
+
+# Filled contour for mixture
+plt.contourf(Xg, Yg, Zmix, levels=20, alpha=0.7)
+
+plt.title("True Overlapping Gaussian Distributions")
+plt.xlabel("x")
+plt.ylabel("y")
+plt.axis("equal")
+
+plt.savefig("true_gaussians.png", dpi=160)
+plt.close()
+
+print("Saved visualization to true_gaussians.png")
