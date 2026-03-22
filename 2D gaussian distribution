@@ -1,0 +1,115 @@
+# ============================================================
+# 2D GAUSSIAN DISTRIBUTIONS WITH LEGEND (SAFE)
+# ============================================================
+
+import matplotlib
+matplotlib.use("Agg")
+
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
+
+# ------------------------------------------------------------
+# PARAMETERS (adjust freely)
+# ------------------------------------------------------------
+np.random.seed(0)
+
+mean1 = np.array([-1.0, 0.0], dtype=np.float32)
+mean2 = np.array([1.5, 1.0], dtype=np.float32)
+
+sigma1 = np.array([[1.0, 0.4],
+                   [0.4, 1.2]], dtype=np.float32)
+
+sigma2 = np.array([[0.6, -0.3],
+                   [-0.3, 0.6]], dtype=np.float32)
+
+w1 = 0.5
+
+# ------------------------------------------------------------
+# GAUSSIAN PDF
+# ------------------------------------------------------------
+def gaussian_pdf_point(x, mean, cov):
+    inv = np.linalg.inv(cov)
+    det = np.linalg.det(cov)
+    norm = 1.0 / (2 * np.pi * np.sqrt(det))
+    d = x - mean
+    return norm * np.exp(-0.5 * d @ inv @ d)
+
+# ------------------------------------------------------------
+# GRID (safe size)
+# ------------------------------------------------------------
+grid_n = 100
+x = np.linspace(-5, 5, grid_n, dtype=np.float32)
+y = np.linspace(-5, 5, grid_n, dtype=np.float32)
+Xg, Yg = np.meshgrid(x, y)
+
+Z1 = np.zeros_like(Xg)
+Z2 = np.zeros_like(Xg)
+Zmix = np.zeros_like(Xg)
+
+# Compute densities safely
+for i in range(grid_n):
+    for j in range(grid_n):
+        p = np.array([Xg[i, j], Yg[i, j]], dtype=np.float32)
+        z1 = gaussian_pdf_point(p, mean1, sigma1)
+        z2 = gaussian_pdf_point(p, mean2, sigma2)
+
+        Z1[i, j] = z1
+        Z2[i, j] = z2
+        Zmix[i, j] = w1 * z1 + (1 - w1) * z2
+
+# ------------------------------------------------------------
+# NORMALIZE FOR VISUAL BLENDING (important)
+# ------------------------------------------------------------
+Z1n = Z1 / (Z1.max() + 1e-8)
+Z2n = Z2 / (Z2.max() + 1e-8)
+Zmixn = Zmix / (Zmix.max() + 1e-8)
+
+# ------------------------------------------------------------
+# CREATE RGB IMAGE (true 2D visualization)
+# ------------------------------------------------------------
+# Red = Gaussian 1
+# Blue = Gaussian 2
+# Green = overlap (mixture)
+
+RGB = np.zeros((grid_n, grid_n, 3), dtype=np.float32)
+RGB[..., 0] = Z1n            # Red channel
+RGB[..., 2] = Z2n            # Blue channel
+RGB[..., 1] = Zmixn * 0.7    # Green = overlap
+
+RGB = np.clip(RGB, 0, 1)
+
+# ------------------------------------------------------------
+# PLOT
+# ------------------------------------------------------------
+plt.figure(figsize=(6, 5))
+
+plt.imshow(
+    RGB,
+    origin="lower",
+    extent=[x.min(), x.max(), y.min(), y.max()],
+    aspect="equal"
+)
+
+plt.xlabel("x")
+plt.ylabel("y")
+plt.title("2D Overlapping Gaussian Distributions")
+
+# ------------------------------------------------------------
+# LEGEND (proxy patches)
+# ------------------------------------------------------------
+legend_elements = [
+    Patch(facecolor='red', label='Gaussian 1'),
+    Patch(facecolor='blue', label='Gaussian 2'),
+    Patch(facecolor='green', label='Overlap / Mixture')
+]
+
+plt.legend(handles=legend_elements, loc="upper right")
+
+# ------------------------------------------------------------
+# SAVE (no display)
+# ------------------------------------------------------------
+plt.savefig("gaussians_2D_legend.png", dpi=160)
+plt.close()
+
+print("Saved visualization to gaussians_2D_legend.png")
